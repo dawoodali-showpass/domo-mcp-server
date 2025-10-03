@@ -4,26 +4,25 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 from mcp.server import Server
+from pydomo import Domo
 
-# Load environment variables
-load_dotenv()
-
-# Get Domo credentials from environment variables
-DOMO_HOST = os.getenv("DOMO_HOST")
-DOMO_DEVELOPER_TOKEN = os.getenv("DOMO_DEVELOPER_TOKEN")
-# Constants
-DOMO_API_BASE = f"https://{DOMO_HOST}/api"
-
-app = Server("domo-mcp-server")
-
+# load_dotenv()
 
 class DomoClient:
     def __init__(self, logger: logging.Logger):
         """Initialize the DomoClient with environment variables and constants."""
         self.DOMO_HOST = os.getenv("DOMO_HOST")
         self.DOMO_DEVELOPER_TOKEN = os.getenv("DOMO_DEVELOPER_TOKEN")
+        self.DOMO_CLIENT_ID = os.getenv("DOMO_CLIENT_ID")
+        self.DOMO_CLIENT_SECRET = os.getenv("DOMO_CLIENT_SECRET")
         self.DOMO_API_BASE = f"https://{self.DOMO_HOST}/api"
         self.logger = logger
+
+        self.logger.info("DomoClient initialized with provided credentials.")
+        self.logger.info(f"DOMO_HOST: {self.DOMO_HOST}")
+        self.logger.info(f"DOMO_CLIENT_ID: {self.DOMO_CLIENT_ID}")
+        self.logger.info(f"DOMO_CLIENT_SECRET: {self.DOMO_CLIENT_SECRET}")
+        self.domo = Domo(client_id=self.DOMO_CLIENT_ID, client_secret=self.DOMO_CLIENT_SECRET, api_host='api.domo.com')
 
     async def make_request(
         self, url: str, method: str, data: dict = None
@@ -54,7 +53,21 @@ class DomoClient:
         except Exception as e:
             self.logger.error(f"Unexpected error: {e}")
             return None
+        
+    async def list_datasets(self) -> str:
+        """List all datasets in the Domo instance."""
+        try:
 
+            result = self.domo.ds_list().to_dict(orient='records')
+
+            self.logger.info("Type of result: {}".format(type(result)))
+
+            return result
+        
+        except Exception as e:
+            self.logger.error(f"Error fetching dataset list: {str(e)}")
+            return f"Error fetching dataset list: {str(e)}"
+        
     async def get_dataset_metadata(self, dataset_id: str) -> str:
         """Get metadata for a Domo dataset."""
         try:

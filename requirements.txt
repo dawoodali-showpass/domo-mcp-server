@@ -1,4 +1,5 @@
 # Requirements for the Domo MCP Server
 requests
 python-dotenv
-mcp
+fastmcp
+pydomo
