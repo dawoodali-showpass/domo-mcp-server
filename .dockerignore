@@ -4,7 +4,6 @@ __pycache__/
 
 # Exclude virtual environments
 .venv
-.env
 
 # Exclude Docker-related files
 Dockerfile

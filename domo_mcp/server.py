@@ -1,6 +1,8 @@
 import logging
 import sys
-from domo import Domo
+
+from dotenv import load_dotenv
+from pydomo import Domo
 from fastmcp import FastMCP, Context
 import os
 import requests
@@ -207,6 +209,8 @@ def setup_logger():
     return Logger()
 
 logger = setup_logger()
+load_dotenv()
+logger.warning(f"Environment variables loaded: {os.environ}")
 domo_client = DomoClient(logger)
 server = FastMCP("domo-mcp")
 
