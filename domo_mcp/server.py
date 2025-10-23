@@ -1,11 +1,13 @@
 import logging
 import sys
+from time import sleep
 
 from dotenv import load_dotenv
 from pydomo import Domo
 from fastmcp import FastMCP, Context
 import os
 import requests
+import json
 
 class DomoClient:
     def __init__(self, logger: logging.Logger):
@@ -24,7 +26,7 @@ class DomoClient:
         self.domo = Domo(client_id=self.DOMO_CLIENT_ID, client_secret=self.DOMO_CLIENT_SECRET, api_host='api.domo.com')
 
     async def make_request(
-        self, url: str, method: str, data: dict = None
+        self, url: str, method: str, data: dict = None, nojson: bool = False
     ) -> dict[str, any] | None:
         """Make a request to the Domo API with proper error handling."""
         headers = {
@@ -45,21 +47,26 @@ class DomoClient:
                 raise ValueError(f"Unsupported HTTP method: {method}")
 
             response.raise_for_status()
+            if nojson:
+                return response.text
             return response.json()
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"HTTP request failed: {e}")
+            self.logger.error(f"HTTP request failed: {e}\nReturned: {response.text}")
             return None
         except Exception as e:
             self.logger.error(f"Unexpected error: {e}")
             return None
-        
+    
+    # async def list_events(self): str | dict[str,any]:
+    #     """List all events in the Domo dataset"""
+
     async def list_datasets(self) -> str:
         """List all datasets in the Domo instance."""
         try:
 
             result = self.domo.ds_list().to_dict(orient='records')
 
-            self.logger.info("Type of result: {}".format(type(result)))
+            self.logger.info("Sample result: {}".format(result[0]))
 
             return result
         
@@ -97,17 +104,50 @@ class DomoClient:
             self.logger.error(f"Error fetching dataset schema: {str(e)}")
             return f"Error fetching dataset schema: {str(e)}"
 
-    async def query_dataset(self, dataset_id: str, sql: str) -> str:
+    async def query_dataset(self, prompt: str) -> str | dict[str,any]:
         """Query a Domo dataset using SQL."""
+        TriggerId= "57e5928e-3488-4723-9075-2fc4dd1dd092"
         try:
-            url = f"/query/v1/execute/{dataset_id}"
-            data = await self.make_request(url, "POST", data={"sql": sql})
+            url = f"/workflow/v2/triggers/57e5928e-3488-4723-9075-2fc4dd1dd092/activate"
+            trigger = await self.make_request(url, "POST", data={"prompt": prompt})
+
+            instance_id = trigger['id']
+            status = trigger['status']
+
+            self.logger.info(f"the status of the trigger is {status}")
+
+            timeout_seconds = 120
+
+            while status=='IN_PROGRESS' and timeout_seconds>0:
+                status = await self.make_request(f"/workflow/v1/instances/{instance_id}/status", "GET", nojson=True)
+                self.logger.info(f"Workflow instance {instance_id} status: {status}")
+                timeout_seconds -= 1
+                sleep(1)
+
+            results_url = f"/workflow/v1/instances/transactions?instanceId={instance_id}"
+
+            messages = await self.make_request(results_url,"GET")
+
+
+            # self.logger.info(f"Workflow instance {instance_id} messages: {messages}")
+
+            result_obj = next((item for item in messages if item.get("id") == "result"), None)
+
+            self.logger.info(f"Result object: {result_obj}")
+
+
+            data = result_obj['value']
+
+            # data = self.domo.ds_query(dataset_id=dataset_id,query=sql)
+
+            # self.logger.info(data)
 
             if not data:
-                self.logger.warning("No data returned for dataset query.")
+                self.logger.warning("No data returned for dataset query. Returned {}".format(data))
                 return "Unable to execute query on the dataset."
 
-            return data
+            return json.loads(data)
+        
         except Exception as e:
             self.logger.error(f"Error executing query on dataset: {str(e)}")
             return f"Error executing query on dataset: {str(e)}"
@@ -215,55 +255,145 @@ domo_client = DomoClient(logger)
 server = FastMCP("domo-mcp")
 
 
-@server.tool()
-async def GetDatasetSchema(dataset_id: str, ctx: Context):
-    """Get a Domo dataset schema.
-    Args: dataset_id: The ID of the dataset to get the schema for.
-    """
-    search_results = await domo_client.get_dataset_schema(dataset_id=dataset_id)
-    logger.info("Schema fetched successfully.")
-    await ctx.report_progress(progress=100, message="Schema fetched successfully")
-    return search_results
+# @server.tool()
+# async def GetDatasetSchema(dataset_id: str, ctx: Context):
+#     """Get a Domo dataset schema.
+#     Args: dataset_id: The ID of the dataset to get the schema for.
+#     """
+#     search_results = await domo_client.get_dataset_schema(dataset_id=dataset_id)
+#     logger.info("Schema fetched successfully.")
+#     await ctx.report_progress(progress=100, message="Schema fetched successfully")
+#     return search_results
+
+# @server.tool()
+# async def ListDatasets(ctx: Context):
+#     """List all datasets in the Domo instance."""
+    
+#     datasets = await domo_client.list_datasets()
+    
+#     logger.info("Datasets listed successfully.")
+
+#     filtered_datasets = []
+
+#     count = 0
+
+    # for dataset in datasets:
+
+    #     metadata = await domo_client.get_dataset_metadata(dataset_id=dataset['id'])
+
+    #     await ctx.report_progress(progress=count / len(datasets), message=f"Fetched metadata for dataset {dataset['id']}")
+    #     count +=1
+
+    #     if "transportType" in metadata.keys() and metadata["transportType"] in ["DATAFLOW", "CONNECTOR"]:
+    #         domo_client.logger.info(f"Included dataset {dataset['id']} of type {metadata['transportType']}")
+    #         filtered_datasets.append(dataset)
+
+    # await ctx.report_progress(progress=100, message="Datasets listed successfully")
+
+    # return {"datasets": datasets}
+
+# @server.tool(description="Filter the datasets to only include those of type DATAFLOW or CONNECTOR which are datasets that can be queried, limited to 10 datasets per call")
+# async def FilterDatasets(datasets_ids: list[str],ctx: Context):
+
+#     count = 1
+    
+#     filtered_datasets = []
+
+#     for dataset_id in datasets_ids:
+
+#         metadata = await domo_client.get_dataset_metadata(dataset_id=dataset_id)
+
+#         await ctx.report_progress(progress=count / len(datasets_ids), message=f"Fetched metadata for dataset {dataset_id}")
+
+#         if "transportType" in metadata.keys() and metadata["transportType"] in ["DATAFLOW", "CONNECTOR"]:
+#             domo_client.logger.info(f"Included dataset {dataset_id} of type {metadata['transportType']}")
+#             filtered_datasets.append(dataset_id)
+        
+#         count +=1
+        
+#     return filtered_datasets
+
+# @server.tool()
+# async def GetDatasetMetadata(dataset_id: str, ctx: Context) -> str | dict[str,any]:
+#     """Get metadata for a Domo dataset.
+#     Args: dataset_id: The ID of the dataset to get metadata for.
+#     """
+#     metadata = await domo_client.get_dataset_metadata(dataset_id=dataset_id)
+#     logger.info("Metadata fetched successfully.")
+#     await ctx.report_progress(progress=100, message="Metadata fetched successfully")
+#     return {"metadata": metadata}
+
+# @server.tool()
+# async def GetEventsInDataset(dataset_id:str, ctx: Context) -> str:
+#     """Get all the event names in a Domo dataset.
+#     Args: dataset_id: The ID of the dataset to get events for.
+#     """
+#     # Placeholder implementation
+
+#     # results = await domo_client.
+#     await ctx.report_progress(progress=100, message="Events fetched successfully")
+#     return {"events": results}
 
 @server.tool()
-async def ListDatasets(ctx: Context):
-    """List all datasets in the Domo instance."""
-    datasets = await domo_client.list_datasets()
-    logger.info("Datasets listed successfully.")
-    await ctx.report_progress(progress=100, message="Datasets listed successfully")
-    return {"datasets": datasets}
-
-@server.tool()
-async def GetDatasetMetadata(dataset_id: str, ctx: Context) -> str:
-    """Get metadata for a Domo dataset.
-    Args: dataset_id: The ID of the dataset to get metadata for.
-    """
-    metadata = await domo_client.get_dataset_metadata(dataset_id=dataset_id)
-    logger.info("Metadata fetched successfully.")
-    await ctx.report_progress(progress=100, message="Metadata fetched successfully")
-    return metadata
-
-@server.tool()
-async def QueryDataset(dataset_id: str, sql: str, ctx: Context) -> str:
-    """Query a Domo dataset using SQL.
+async def SearchDomo(prompt: str, ctx: Context) -> str | dict[str,any]:
+    """Search Domo using Domo Agents and Prompts.
     Args:
-        dataset_id: The ID of the dataset to query.
-        sql: The SQL query to execute on the dataset.
+        prompt: The prompt to pass to Domo. This 
     """
-    query_results = await domo_client.query_dataset(dataset_id=dataset_id, sql=sql)
+    query_results = await domo_client.query_dataset(prompt=prompt)
+
+    # results = await domo_client.make_request("/04db5209-1c6c-45ed-a7c9-5cfd82d1487f","GET")
     logger.info("Query executed successfully.")
     await ctx.report_progress(progress=100, message="Query executed successfully")
-    return query_results
+    return {"data": query_results}
 
-@server.tool()
-async def SearchDatasets(query: str, ctx: Context) -> str:
-    """Search for datasets in a Domo instance by name.
-    Args: query: The search query to find datasets by name.
-    """
-    search_results = await domo_client.search_datasets(query=query)
-    logger.info("Datasets searched successfully.")
-    await ctx.report_progress(progress=100, message="Datasets searched successfully")
-    return search_results
+
+async def tix_domo(data: dict | None, TriggerId: str ):
+
+    # TriggerId = '82833c7a-fcce-4987-88aa-96d54a086c74'
+
+    venue_id = data.get("venueId",0) if data else 0
+
+
+    try:
+        url = f"/workflow/v2/triggers/{TriggerId}/activate"
+        trigger = await domo_client.make_request(url, "POST", data={"venueId": venue_id})
+
+        instance_id = trigger['id']
+        status = trigger['status']
+
+        domo_client.logger.info(f"the status of the trigger is {status}")
+
+        timeout_seconds = 300
+
+        while status=='IN_PROGRESS' and timeout_seconds>0:
+            status = await domo_client.make_request(f"/workflow/v1/instances/{instance_id}/status", "GET", nojson=True)
+            domo_client.logger.info(f"Workflow instance {instance_id} status: {status}")
+            timeout_seconds -= 1
+            sleep(1)
+
+        results_url = f"/workflow/v1/instances/transactions?instanceId={instance_id}"
+
+        messages = await domo_client.make_request(results_url,"GET")
+
+        domo_client.logger.info(f"Workflow instance {instance_id} messages: {messages}")
+        return {"status": status, "messages": messages}
+    
+    except Exception as e:
+        domo_client.logger.error(f"Error executing tix agent: {str(e)}")
+    return True
+
+
+
+# @server.tool()
+# async def SearchDatasets(query: str, ctx: Context) -> str:
+#     """Search for datasets in a Domo instance by name.
+#     Args: query: The search query to find datasets by name.
+#     """
+#     search_results = await domo_client.search_datasets(query=query)
+#     logger.info("Datasets searched successfully.")
+#     await ctx.report_progress(progress=100, message="Datasets searched successfully")
+#     return search_results
 
 @server.tool()
 async def ListRoles(ctx: Context):
