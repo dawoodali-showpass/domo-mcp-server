@@ -49,7 +49,7 @@ def main():
 
         while status !='COMPLETED' and attempts> 0:
 
-            response = await tix_domo(data, TriggerId="7e5718cc-40d5-423b-bc33-4eaacc308a4a")
+            response = await tix_domo(data, TriggerId="294469f5-1c4d-44ae-a96f-5f3d01b3a9c1")
 
             status = response.get('status','uninitialized')
             attempts -= 1
