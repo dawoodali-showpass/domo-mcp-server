@@ -55,11 +55,11 @@ def main():
             attempts -= 1
 
         if status == 'COMPLETED':
-            return JSONResponse({"status": "completed", "data": response['messages']})
+            filtered = [item for item in response['messages'] if item.get("id", "").startswith("result__")]
 
         logging.info(f"Received data: {data}")
 
-        return JSONResponse({"status": response.get('status', 'unknown'), "data": response})
+        return JSONResponse({"status": response.get('status', 'unknown'), "data": filtered})
     
     proxy.settings.host= "0.0.0.0"
     proxy.settings.client_init_timeout=60
