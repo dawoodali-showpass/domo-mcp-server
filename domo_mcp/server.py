@@ -6,9 +6,32 @@ from dotenv import load_dotenv
 from pydomo import Domo
 from fastmcp import FastMCP, Context
 import os
-import requests
+from starlette.responses import JSONResponse
+from starlette.requests import Request
 import json
 
+
+async def tix_workflow(request: Request, triggerId: str) -> JSONResponse:
+
+    data = await request.json()
+    attempts = 5
+    status = "uninitialized"
+
+    while status !='COMPLETED' and attempts> 0:
+
+        response = await tix_domo(data, TriggerId=triggerId)
+
+        status = response.get('status','uninitialized')
+        attempts -= 1
+
+    if status == 'COMPLETED':
+        filtered = [item for item in response['messages'] if item.get("id", "").startswith("result__")]
+
+        return JSONResponse({"status": "completed", "data": filtered})
+    
+    logging.info(f"Received data: {data}")
+    
+    return JSONResponse({"status": response.get('status', 'unknown'), "data": response})
 class DomoClient:
     def __init__(self, logger: logging.Logger):
         """Initialize the DomoClient with environment variables and constants."""
@@ -347,6 +370,13 @@ async def SearchDomo(prompt: str, ctx: Context) -> str | dict[str,any]:
     await ctx.report_progress(progress=100, message="Query executed successfully")
     return {"data": query_results}
 
+@server.tool()
+async def SearchDomoFraud(prompt:str, ctx: Context) -> str | dict[str,any]:
+    """Search Domo for fraud cases using Prompts.
+    Args:
+        prompt: The prompt to pass to pass to the Domo fraud. This 
+    """
+    return await tix_workflow(prompt, triggerId="c1ed0ce4-591e-444b-86e4-c514cd6802e0")
 
 async def tix_domo(data: dict | None, TriggerId: str ):
 

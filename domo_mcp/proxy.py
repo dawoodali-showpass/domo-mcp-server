@@ -5,29 +5,7 @@ from starlette.requests import Request
 import logging
 import os
 
-from server import tix_domo
-
-async def tix_workflow(request: Request, triggerId: str) -> JSONResponse:
-
-    data = await request.json()
-    attempts = 5
-    status = "uninitialized"
-
-    while status !='COMPLETED' and attempts> 0:
-
-        response = await tix_domo(data, TriggerId=triggerId)
-
-        status = response.get('status','uninitialized')
-        attempts -= 1
-
-    if status == 'COMPLETED':
-        filtered = [item for item in response['messages'] if item.get("id", "").startswith("result__")]
-
-        return JSONResponse({"status": "completed", "data": filtered})
-    
-    logging.info(f"Received data: {data}")
-    
-    return JSONResponse({"status": response.get('status', 'unknown'), "data": response})
+from server import tix_workflow
 
 def main():
 
