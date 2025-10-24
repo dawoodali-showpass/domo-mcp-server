@@ -56,7 +56,7 @@ def main():
     
     @proxy.custom_route("/tix/rcf",methods=['POST'])
     async def tix_rcf(request: Request) -> JSONResponse:
-        return await tix_workflow(request, triggerId="e8642884-0637-4c66-b043-c2f62bcd1adc")
+        return await tix_workflow(request, triggerId="cf668421-0a21-4e60-bd64-e1fe608e33bf")
 
     
     proxy.settings.host= "0.0.0.0"
